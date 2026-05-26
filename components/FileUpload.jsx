@@ -12,7 +12,7 @@ import {
   Box,
   Hash
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from "@/lib/utils";
 
@@ -103,9 +103,6 @@ const FileUpload = () => {
                 hashMapKeys.forEach((itm) => {
                     let obj = {
                       store: hashMap[itm].join("-"),
-                      total: 0,
-                      total_carton: 0,
-                      total_pcs: 0
                     };
                     
                     let internal_sizes = itm.split(',');
@@ -163,10 +160,117 @@ const FileUpload = () => {
     };
 
     const generateXlsx = () => {
-        const ws = XLSX.utils.json_to_sheet(excelData);
+        const headers = ["store", ...sizeColumn, "total", "total_carton", "total_pcs"];
+        const ws = XLSX.utils.json_to_sheet(excelData, { header: headers });
+        
+        // Find the range of the worksheet
+        const range = XLSX.utils.decode_range(ws['!ref']);
+        
+        // Loop over the cells in the sheet range to apply formatting
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+                const cellRef = XLSX.utils.encode_cell({ r: R, c: C });
+                const cell = ws[cellRef];
+                if (!cell) continue;
+                
+                // Initialize style object
+                cell.s = {};
+                
+                // Check if it is the first row (header row)
+                if (R === 0) {
+                    // Prettify header names
+                    if (cell.v === "store") {
+                        cell.v = "Store Location";
+                        cell.t = "s";
+                        if (cell.w) delete cell.w;
+                    } else if (cell.v === "total") {
+                        cell.v = "Total";
+                        cell.t = "s";
+                        if (cell.w) delete cell.w;
+                    } else if (cell.v === "total_carton") {
+                        cell.v = "Total Cartons";
+                        cell.t = "s";
+                        if (cell.w) delete cell.w;
+                    } else if (cell.v === "total_pcs") {
+                        cell.v = "Total Pieces";
+                        cell.t = "s";
+                        if (cell.w) delete cell.w;
+                    }
+
+                    cell.s.font = {
+                        name: "Calibri",
+                        sz: 18, // Header font size 18 (proportionate to 16pt data)
+                        bold: true,
+                        color: { rgb: "FFFFFF" }
+                    };
+                    cell.s.fill = {
+                        fgColor: { rgb: "10B981" } // Emerald green matches the UI
+                    };
+                    cell.s.alignment = {
+                        horizontal: C === 0 ? "left" : "center",
+                        vertical: "center", // Align header vertically to the middle
+                        wrapText: C === 0 // Wrap text for lengthy Store Location header if needed
+                    };
+                } else {
+                    // Regular data rows
+                    cell.s.font = {
+                        name: "Calibri",
+                        sz: 16 // Data cell font size 16 as requested
+                    };
+                    cell.s.alignment = {
+                        horizontal: C === 0 ? "left" : "center",
+                        vertical: "center", // Align cells vertically to the middle
+                        wrapText: C === 0 // Enable text wrapping for the Store Location data cells
+                    };
+                    
+                    // Add a subtle border to data cells for premium look
+                    cell.s.border = {
+                        top: { style: "thin", color: { rgb: "E5E7EB" } },
+                        bottom: { style: "thin", color: { rgb: "E5E7EB" } },
+                        left: { style: "thin", color: { rgb: "E5E7EB" } },
+                        right: { style: "thin", color: { rgb: "E5E7EB" } }
+                    };
+                }
+            }
+        }
+
+        // Dynamically compute column widths
+        const cols = [];
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+            let maxLength = 10; // Default minimum width
+            for (let R = range.s.r; R <= range.e.r; ++R) {
+                const cellRef = XLSX.utils.encode_cell({ r: R, c: C });
+                const cell = ws[cellRef];
+                if (cell && cell.v) {
+                    const valueStr = String(cell.v);
+                    if (valueStr.length > maxLength) {
+                        maxLength = valueStr.length;
+                    }
+                }
+            }
+            if (C === 0) {
+                // Capped at 45 characters and scaled for 16pt font size
+                cols.push({ wch: Math.min(Math.ceil(maxLength * 1.3), 45) });
+            } else {
+                // Scale column width by 1.3 + 4 characters padding for 16pt font sizing
+                cols.push({ wch: Math.ceil(maxLength * 1.3) + 4 });
+            }
+        }
+        ws['!cols'] = cols;
+
+        const pad = (num) => String(num).padStart(2, '0');
+        const now = new Date();
+        const dd = pad(now.getDate());
+        const mm = pad(now.getMonth() + 1);
+        const yyyy = now.getFullYear();
+        const hh = pad(now.getHours());
+        const min = pad(now.getMinutes());
+        const ss = pad(now.getSeconds());
+        const formattedDate = `${dd}-${mm}-${yyyy}-${hh}-${min}-${ss}`;
+
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Summary");
-        XLSX.writeFileXLSX(wb, `summary-${new Date().getTime()}.xlsx`);
+        XLSX.writeFile(wb, `summary-${formattedDate}.xlsx`);
     };
 
     const totalCartons = excelData.reduce((acc, itm) => acc + itm.total_carton, 0);
